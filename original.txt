@@ -1,0 +1,86 @@
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+
+using namespace std;
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        cerr << "Usage: " << argv[0] << " <url>" << endl;
+        return 1;
+    }
+
+    string url = argv[1];
+    string host, path;
+    int port = 80;
+
+    // Parse the URL to get the host, path, and port
+    if (url.substr(0, 7) == "http://") {
+        url = url.substr(7);
+    }
+    size_t pos = url.find('/');
+    if (pos == string::npos) {
+        host = url;
+        path = "/";
+    } else {
+        host = url.substr(0, pos);
+        path = url.substr(pos);
+    }
+    pos = host.find(':');
+    if (pos != string::npos) {
+        port = stoi(host.substr(pos + 1));
+        host = host.substr(0, pos);
+    }
+
+    // Connect to the server
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        cerr << "Error: could not create socket" << endl;
+        return 1;
+    }
+    struct hostent *server = gethostbyname(host.c_str());
+    if (server == NULL) {
+        cerr << "Error: could not resolve hostname" << endl;
+        return 1;
+    }
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    memcpy(&serv_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+    serv_addr.sin_port = htons(port);
+    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        cerr << "Error: could not connect to server" << endl;
+        return 1;
+    }
+
+    // Send a GET request for the webpage
+    ostringstream request;
+    request << "GET " << path << " HTTP/1.1\r\n";
+    request << "Host: " << host << "\r\n";
+    request << "Connection: close\r\n";
+    request << "\r\n";
+    string request_str = request.str();
+    if (send(sockfd, request_str.c_str(), request_str.length(), 0) < 0) {
+        cerr << "Error: could not send request" << endl;
+        return 1;
+    }
+
+    // Receive the webpage's source code and print it to the console
+    char buffer[1024];
+    int n;
+    while ((n = recv(sockfd, buffer, sizeof(buffer), 0)) > 0) {
+        cout.write(buffer, n);
+    }
+    if (n < 0) {
+        cerr << "Error: could not receive response" << endl;
+        return 1;
+    }
+
+    // Close the socket
+    close(sockfd);
+
+    return 0;
+}
